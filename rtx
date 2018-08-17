@@ -1,0 +1,153 @@
+#!/bin/python3
+
+import requests
+import json
+
+import hashlib
+from Crypto import Random
+from Crypto.Cipher import AES
+import base64
+
+import datetime
+import sys
+
+#AES crypto====================================================================
+class AESCipher:
+	# basic class to provide AES cryptography, shamelessly ripped from 
+	# stack exchange:
+	# https://stackoverflow.com/questions/12524994/encrypt-decrypt-using-py
+	# crypto-aes-256
+
+	def __init__(self, key):
+		self.bs = 32
+		self.key = hashlib.sha256(key.encode()).digest()
+
+	def encrypt(self, raw):
+		raw = self._pad(raw)
+		iv = Random.new().read(AES.block_size)
+		cipher = AES.new(self.key, 
+			AES.MODE_CBC, iv)
+		return base64.b64encode(iv + cipher.encrypt(raw))
+
+	def decrypt(self, enc):
+		enc = base64.b64decode(enc)
+		iv = enc[:AES.block_size]
+		cipher = AES.new(self.key, 
+			AES.MODE_CBC, iv)
+		unpadded = self._unpad(
+			cipher.decrypt(enc[AES.block_size:]))
+		return unpadded.decode('utf-8', errors = 'ignore')
+
+	def _pad(self, s):
+		return s + (self.bs - len(s)%self.bs)*\
+			chr(self.bs - len(s)%self.bs)
+
+	@staticmethod
+	def _unpad(s):
+		return s[:-ord(s[len(s)-1:])]
+
+
+def fetch(server, room, depth):
+	ids_after = 0
+	query = {'MAX_MSGS': depth, 'id': {'min': ids_after + 1}}
+	reqs = requests.post(server + room, json = query)
+	raw = reqs.content.decode('utf-8')
+	msg_list = json.loads(raw)
+	msg_list.reverse()
+	
+	return msg_list
+
+def decrypt(msg_list, key=None):
+	for msg in msg_list:
+		encryption = msg.get('encrypted', False)
+		cipher_text = base64.b64decode(msg.setdefault('msg',
+			'')).decode('utf-8')
+		if key is not None:
+			cipher = AESCipher(key)
+			msg['msg'] = cipher.decrypt(cipher_text)
+	return msg_list
+
+def arrange(msg_list, time_format = '%H:%M'):
+	arranged_msg_list = []
+	for msg in msg_list:
+		timestamp = msg['time']
+		text = msg['msg']
+		
+		if 'settings' in msg:
+			raw_settings = base64.b64decode(
+				msg['settings']).decode('utf-8')
+			settings = json.loads(raw_settings)
+
+		name = settings.get('name', msg['ip'])
+
+		arranged_msg = "[" 
+		arranged_msg += datetime.datetime.fromtimestamp(
+			timestamp).strftime(time_format)
+		arranged_msg += "] "
+		arranged_msg += name
+		arranged_msg += " "
+		arranged_msg += text
+
+		arranged_msg_list.append(arranged_msg)
+
+	return arranged_msg_list
+
+def encrypt(text_to_encrypt, key=None):
+	encryption = False
+	if key is not None:
+		cipher = AESCipher(key)
+		encrypted_text = cipher.encrypt(text_to_encrypt)
+		encrypted_text = encrypted_text.decode('utf-8')
+		encryption = True
+	else:
+		encrypted_text = text_to_encrypt
+
+	return (encrypted_text, encryption)
+
+def pack(data_to_pack, settings=None):
+	text_to_pack = data_to_pack[0]
+
+	text_to_pack = base64.b64encode(bytes(text_to_pack,
+		encoding = 'utf-8'))
+
+	if settings is not None:
+		settings = base64.b64encode(bytes(json.dumps(settings),
+			encoding = 'utf-8'))
+
+	packed_data = {
+		'msg': text_to_pack.decode('utf-8'),
+		'settings': settings.decode('utf-8'),
+		'encrypted': data_to_pack[1]
+		}
+
+	return packed_data
+
+def send(server, room, msg):
+	requests.post(server + room + '!post', json = msg)
+
+def main():
+	server = "http://waksmemes.x10host.com/mess/?"
+	room = "main"
+	depth = 24
+	if len(sys.argv) > 1:
+		key = sys.argv[1]
+	else:
+		key = None
+
+	settings = {'name' : 'zak (rtx test)'}
+
+	new_msg = input(">")
+
+	encrypted_new_msg = encrypt(new_msg, key)
+	packed_new_msg = pack(encrypted_new_msg, settings)
+	send(server, room, packed_new_msg)
+
+	encrypted_msgs = fetch(server, room, depth)
+	plain_msgs = decrypt(encrypted_msgs, key)
+	pretty_msgs = arrange(plain_msgs)
+
+	for m in pretty_msgs:
+		print(m)
+
+if __name__ == "__main__":
+	main()
