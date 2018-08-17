@@ -46,6 +46,20 @@ class AESCipher:
 	def _unpad(s):
 		return s[:-ord(s[len(s)-1:])]
 
+def color(string, color):
+	colors = {
+		'red': "\x1b[1;31m",
+		'green': "\x1b[1;32m",
+		'yellow': "\x1b[1;33m",
+		'blue': "\x1b[1;34m",
+		'purple': "\x1b[1;35m",
+		'cyan': "\x1b[1;36m",
+		'stop color' : "\x1b[0m"
+		}
+	if color not in colors:
+		return string
+	else:
+		return colors[color] + string + colors['stop color']
 
 def fetch(server, room, depth):
 	ids_after = 0
@@ -74,6 +88,11 @@ def arrange(msg_list, time_format = '%H:%M'):
 	for msg in msg_list:
 		timestamp = msg['time']
 		text = msg['msg']
+		encrypted_color = msg.get('encrypted', False)
+		if encrypted_color == True:
+			encrypted_color = 'green'
+		else:
+			encrypted_color = 'red'
 		
 		if 'settings' in msg:
 			raw_settings = base64.b64decode(
@@ -81,12 +100,14 @@ def arrange(msg_list, time_format = '%H:%M'):
 			settings = json.loads(raw_settings)
 
 		name = settings.get('name', msg['ip'])
+		name_color = settings.get('color', '')
 
 		arranged_msg = "[" 
 		arranged_msg += datetime.datetime.fromtimestamp(
 			timestamp).strftime(time_format)
 		arranged_msg += "] "
-		arranged_msg += name
+		arranged_msg += color(name, name_color)
+		arranged_msg += color(":", encrypted_color)
 		arranged_msg += " "
 		arranged_msg += text
 
@@ -136,7 +157,8 @@ def main():
 	else:
 		key = None
 
-	settings = {'name' : 'zak (rtx test)'}
+	settings = {'name' : 'zak (rtx test)', 'color' : 'blue'}
+	time_fmt = '%H:%M.%S'
 
 	new_msg = input(">")
 
@@ -146,7 +168,7 @@ def main():
 
 	encrypted_msgs = fetch(server, room, depth)
 	plain_msgs = decrypt(encrypted_msgs, key)
-	pretty_msgs = arrange(plain_msgs)
+	pretty_msgs = arrange(plain_msgs, time_fmt)
 
 	for m in pretty_msgs:
 		print(m)
