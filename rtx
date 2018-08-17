@@ -11,7 +11,7 @@ import base64
 import datetime
 import sys
 
-#AES crypto====================================================================
+# utilities ===================================================================
 class AESCipher:
 	# basic class to provide AES cryptography, shamelessly ripped from 
 	# stack exchange:
@@ -61,7 +61,8 @@ def color(string, color):
 	else:
 		return colors[color] + string + colors['stop color']
 
-def fetch(server, room, depth):
+# recieve chain ===============================================================
+def rx(server, room, depth):
 	ids_after = 0
 	query = {'MAX_MSGS': depth, 'id': {'min': ids_after + 1}}
 	reqs = requests.post(server + room, json = query)
@@ -83,7 +84,13 @@ def decrypt(msg_list, key=None):
 			msg['msg'] = cipher_text
 	return msg_list
 
-def arrange(msg_list, time_format = '%H:%M'):
+def unpack(msg_list, unpack_settings=None):
+
+	topen = unpack_settings.get('topen', '[')
+	tclose = unpack_settings.get('tclose', ']')
+	sep = unpack_settings.get('sep', ':')
+	tfmt = unpack_settings.get('tfmt', '%H:%M')
+
 	arranged_msg_list = []
 	for msg in msg_list:
 		timestamp = msg['time']
@@ -97,17 +104,17 @@ def arrange(msg_list, time_format = '%H:%M'):
 		if 'settings' in msg:
 			raw_settings = base64.b64decode(
 				msg['settings']).decode('utf-8')
-			settings = json.loads(raw_settings)
+			pack_settings = json.loads(raw_settings)
 
-		name = settings.get('name', msg['ip'])
-		name_color = settings.get('color', '')
+		name = pack_settings.get('name', msg['ip'])
+		name_color = pack_settings.get('color', '')
 
-		arranged_msg = "[" 
+		arranged_msg = topen
 		arranged_msg += datetime.datetime.fromtimestamp(
-			timestamp).strftime(time_format)
-		arranged_msg += "] "
+			timestamp).strftime(tfmt)
+		arranged_msg += (tclose + " ")
 		arranged_msg += color(name, name_color)
-		arranged_msg += color(":", encrypted_color)
+		arranged_msg += color(sep, encrypted_color)
 		arranged_msg += " "
 		arranged_msg += text
 
@@ -115,6 +122,7 @@ def arrange(msg_list, time_format = '%H:%M'):
 
 	return arranged_msg_list
 
+# transmit chain ==============================================================
 def encrypt(text_to_encrypt, key=None):
 	encryption = False
 	if key is not None:
@@ -127,26 +135,38 @@ def encrypt(text_to_encrypt, key=None):
 
 	return (encrypted_text, encryption)
 
-def pack(data_to_pack, settings=None):
+def pack(data_to_pack, pack_settings=None):
 	text_to_pack = data_to_pack[0]
 
 	text_to_pack = base64.b64encode(bytes(text_to_pack,
 		encoding = 'utf-8'))
 
-	if settings is not None:
-		settings = base64.b64encode(bytes(json.dumps(settings),
-			encoding = 'utf-8'))
+	if pack_settings is not None:
+		pack_settings = base64.b64encode(
+			bytes(json.dumps(pack_settings),encoding = 'utf-8'))
 
 	packed_data = {
 		'msg': text_to_pack.decode('utf-8'),
-		'settings': settings.decode('utf-8'),
+		'settings': pack_settings.decode('utf-8'),
 		'encrypted': data_to_pack[1]
 		}
 
 	return packed_data
 
-def send(server, room, msg):
+def tx(server, room, msg):
 	requests.post(server + room + '!post', json = msg)
+
+# recieve/transmit frontends ==================================================
+def push(server, room, msg, key=None, pack_settings=None):
+	encrypted_msg = encrypt(msg, key)
+	packed_msg = pack(encrypted_msg, pack_settings)
+	tx(server, room, packed_msg)
+
+def pull(server, room, depth, key=None, unpack_settings=None):
+	encrypted_msgs = rx(server, room, depth)
+	plain_msgs = decrypt(encrypted_msgs, key)
+	pretty_msgs = unpack(plain_msgs, unpack_settings)
+	return pretty_msgs
 
 def main():
 	server = "http://waksmemes.x10host.com/mess/?"
@@ -157,18 +177,13 @@ def main():
 	else:
 		key = None
 
-	settings = {'name' : 'zak (rtx test)', 'color' : 'blue'}
-	time_fmt = '%H:%M.%S'
+	pack_settings = {'name' : 'zak (rtx test)', 'color' : 'blue'}
+	unpack_settings = {'tfmt' : '%d-%m-%y %I:%M.%S'}
 
 	new_msg = input(">")
 
-	encrypted_new_msg = encrypt(new_msg, key)
-	packed_new_msg = pack(encrypted_new_msg, settings)
-	send(server, room, packed_new_msg)
-
-	encrypted_msgs = fetch(server, room, depth)
-	plain_msgs = decrypt(encrypted_msgs, key)
-	pretty_msgs = arrange(plain_msgs, time_fmt)
+	push(server, room, new_msg, key, pack_settings)
+	pretty_msgs = pull(server, room, depth, key, unpack_settings)
 
 	for m in pretty_msgs:
 		print(m)
