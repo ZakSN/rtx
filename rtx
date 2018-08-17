@@ -60,11 +60,13 @@ def fetch(server, room, depth):
 def decrypt(msg_list, key=None):
 	for msg in msg_list:
 		encryption = msg.get('encrypted', False)
-		cipher_text = base64.b64decode(msg.setdefault('msg',
+		cipher_text = base64.b64decode(msg.get('msg',
 			'')).decode('utf-8')
-		if key is not None:
+		if (encryption != False) and (key != None):
 			cipher = AESCipher(key)
 			msg['msg'] = cipher.decrypt(cipher_text)
+		else:
+			msg['msg'] = cipher_text
 	return msg_list
 
 def arrange(msg_list, time_format = '%H:%M'):
@@ -127,7 +129,7 @@ def send(server, room, msg):
 
 def main():
 	server = "http://waksmemes.x10host.com/mess/?"
-	room = "main"
+	room = "rtx_test"
 	depth = 24
 	if len(sys.argv) > 1:
 		key = sys.argv[1]
