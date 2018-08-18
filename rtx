@@ -273,6 +273,9 @@ def config_from_cmd(global_settings, pack_settings, unpack_settings):
 	else:
 		server = None
 
+	if arguments['--depth='] != None:
+		cmd_global_settings['depth']=arguments['--depth=']
+
 	# TODO: get smarter and fix this...
 	# this builds a new global_settings from cmd args, failing over to
 	# defaults that were passed in global_settings, in a way that makes
@@ -289,16 +292,25 @@ def config_from_cmd(global_settings, pack_settings, unpack_settings):
 		if arguments['--room='] != None:
 			room = arguments['--room=']
 			cmd_global_settings['room'] = room
-			cmd_global_settings[server][room] = \
-				arguments['--key=']
+			if arguments['--key='] != None:
+				cmd_global_settings[server][room] = \
+					arguments['--key=']
+			else:
+				cmd_global_settings[server][room] = \
+				global_settings[server][room]
 		else:
 			room = global_settings['room']
-			cmd_global_settings[server][room] = \
-				arguments['--key=']
+			if arguments['--key='] != None:
+				cmd_global_settings[server][room] = \
+					arguments['--key=']
+			else:
+				cmd_global_settings[server][room] = \
+				global_settings[server][room]
 	else:
 		server = global_settings['server']
 		if arguments['--room='] != None:
 			room = arguments['--room=']
+			cmd_global_settings['room'] = room
 			if room in global_settings[server]:
 				if arguments['--key='] != None:
 					global_settings[server][room] = \
