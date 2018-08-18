@@ -21,8 +21,6 @@ import base64
 import datetime
 import sys
 import os
-sys.path.append(os.path.join(os.path.expanduser('~'), '.config'))
-from rtx import config
 
 # utilities ===================================================================
 class AESCipher:
@@ -74,6 +72,19 @@ def color(string, color):
 	else:
 		return colors[color] + string + colors['stop color']
 
+def merge_dicts(a, b):
+	# recursively merge two dictionaries
+	# if a key is only in b it is added to a
+	# if a key is in both a and b and it points to a dict in both
+	#       they are merged
+	# otherwise the value of a is used
+	for k in b:
+		if k not in a:
+			a[k] = b[k]
+		elif isinstance(a[k], dict) and isinstance(b[k], dict):
+			a[k] = merge_dicts(a[k], b[k])
+	return a
+
 # recieve chain ===============================================================
 def rx(server, room, depth):
 	ids_after = 0
@@ -108,11 +119,7 @@ def unpack(msg_list, unpack_settings=None):
 	for msg in msg_list:
 		timestamp = msg['time']
 		text = msg['msg']
-		encrypted_color = msg.get('encrypted', False)
-		if encrypted_color == True:
-			encrypted_color = 'green'
-		else:
-			encrypted_color = 'red'
+		encryption_flag = msg.get('encrypted', False)
 		
 		if 'settings' in msg:
 			raw_settings = base64.b64decode(
@@ -122,12 +129,19 @@ def unpack(msg_list, unpack_settings=None):
 		name = pack_settings.get('name', msg['ip'])
 		name_color = pack_settings.get('color', '')
 
+		if encryption_flag == True:
+			colon_color = unpack_settings.get('encrypted_color',
+							'red')
+		else:
+			colon_color = unpack_settings.get('unencrypted_color', 
+							None)
+		
 		arranged_msg = topen
 		arranged_msg += datetime.datetime.fromtimestamp(
 			timestamp).strftime(tfmt)
 		arranged_msg += (tclose + " ")
 		arranged_msg += color(name, name_color)
-		arranged_msg += color(sep, encrypted_color)
+		arranged_msg += color(sep, colon_color)
 		arranged_msg += " "
 		arranged_msg += text
 
@@ -181,25 +195,77 @@ def pull(server, room, depth, key=None, unpack_settings=None):
 	pretty_msgs = unpack(plain_msgs, unpack_settings)
 	return pretty_msgs
 
+def config_from_defaults():
+	# our default global settings
+	global_settings = {
+		'waksmemes' : {
+			'url' : 'http://waksmemes.x10host.com/mess/?',
+			'main' : None
+			},
+		'server' : 'waksmemes',
+		'room' : 'main',
+		'depth' : 24
+	}
+	return global_settings
+
+def config_from_file(global_settings):
+	# attempt to load a user config file
+	sys.path.append(os.path.join(os.path.expanduser('~'), '.config'))
+	try:
+		from rtx import config
+	except ModuleNotFoundError:
+		pack_settings = None
+		unpack_settings = None
+
+	# merge the user's global settings with the defaults
+	# possible exception if the user no global settings
+	try:
+		global_settings = merge_dicts(config.global_settings, global_settings)
+	except NameError:
+		pass
+	
+	# attempt to load un/pack settings from config
+	try:
+		pack_settings = config.pack_settings
+	except NameError:
+		pack_Settings = None;
+	try:
+		unpack_settings = config.unpack_settings
+	except NameError:
+		unpack_Settings = None;
+
+	return global_settings, pack_settings, unpack_settings
+
+def config_from_cmd(global_settings, pack_settings, unpack_settings):
+	return global_settings, pack_settings, unpack_settings
+
 def main():
-	default_server = 'waksmemes'
-	default_room = 'rtx_test'
+	global_settings = config_from_defaults()
+	
+	global_settings, pack_settings, unpack_settings = \
+		config_from_file(global_settings)
+	
+	global_settings, pack_settings, unpack_settings = \
+		config_from_cmd(
+			global_settings,
+			pack_settings,
+			unpack_settings
+		)
 
-	server = config.global_settings[default_server]['url']
-	room = default_room
-	key = config.global_settings[default_server][default_room]
-	depth = config.global_settings['depth']
+	server_name = global_settings['server']
+	room = global_settings['room']
+	depth = global_settings['depth']
 
-	pack_settings = config.pack_settings
-	unpack_settings = config.unpack_settings
+	server = global_settings[server_name]['url']
+	key = global_settings[server_name][room]
 
-	new_msg = input(">")
-
-	push(server, room, new_msg, key, pack_settings)
 	pretty_msgs = pull(server, room, depth, key, unpack_settings)
-
 	for m in pretty_msgs:
 		print(m)
+	
+	new_msg = input(">")
+	push(server, room, new_msg, key, pack_settings)
+
 
 if __name__ == "__main__":
 	main()
