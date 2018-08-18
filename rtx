@@ -21,6 +21,8 @@ import base64
 import datetime
 import sys
 import os
+import urllib
+import ast
 
 # utilities ===================================================================
 class AESCipher:
@@ -204,11 +206,11 @@ def pull(server, room, depth, key=None, unpack_settings=None):
 def config_from_defaults():
 	# our default global settings
 	global_settings = {
-		'waksmemes' : {
+		'waksmemes.x10host.com' : {
 			'url' : 'http://waksmemes.x10host.com/mess/?',
 			'main' : None
 			},
-		'server' : 'waksmemes',
+		'server' : 'waksmemes.x10host.com',
 		'room' : 'main',
 		'depth' : 24
 	}
@@ -226,7 +228,8 @@ def config_from_file(global_settings):
 	# merge the user's global settings with the defaults
 	# possible exception if the user no global settings
 	try:
-		global_settings = merge_dicts(config.global_settings, global_settings)
+		global_settings = merge_dicts(config.global_settings, \
+			global_settings)
 	except AttributeError:
 		pass
 	
@@ -243,6 +246,93 @@ def config_from_file(global_settings):
 	return global_settings, pack_settings, unpack_settings
 
 def config_from_cmd(global_settings, pack_settings, unpack_settings):
+	# The available command line arguments are:
+	arguments = {
+		'--url=' : None,
+		'--room=' : None,
+		'--key=' : None,
+		'--depth=' : None,
+		'--pack_settings=' : None,
+		'--unpack_settings=' : None,
+		'--mode=' : None,
+		'--write_config=' : None
+	}
+
+	# parse fill the arguments dict
+	for arg in sys.argv:
+		for arg_name in arguments:
+			if arg.startswith(arg_name):
+				arguments[arg_name] = arg[len(arg_name):]
+
+	cmd_global_settings = {}
+
+	# parse the server's url if given
+	if arguments['--url='] != None:
+		parsed_uri = urllib.parse.urlparse(arguments['--url='])
+		server = '{uri.netloc}'.format(uri=parsed_uri)
+	else:
+		server = None
+
+	# TODO: get smarter and fix this...
+	# this builds a new global_settings from cmd args, failing over to
+	# defaults that were passed in global_settings, in a way that makes
+	# contextual sense. essentially there are three properties:
+	# url, room, key,
+	# there are 8 ways the above info can be passed so this block just
+	# goes through all 8 building the settings dict
+	# it sucks cause its completely non-general and requires knowledge
+	# about significance (in a MSB sense) of the above properties
+	if server != None:
+		cmd_global_settings[server] = {}
+		cmd_global_settings['server'] = server
+
+		if arguments['--room='] != None:
+			room = arguments['--room=']
+			cmd_global_settings['room'] = room
+			cmd_global_settings[server][room] = \
+				arguments['--key=']
+		else:
+			room = global_settings['room']
+			cmd_global_settings[server][room] = \
+				arguments['--key=']
+	else:
+		server = global_settings['server']
+		if arguments['--room='] != None:
+			room = arguments['--room=']
+			if room in global_settings[server]:
+				if arguments['--key='] != None:
+					global_settings[server][room] = \
+						arguments['--key=']
+			else:
+				global_settings[server][room] = \
+					arguments['--key=']
+		else:
+			if arguments['--key='] != None:
+				room = global_settings['room']
+				global_settings[server][room] = \
+					arguments['--key=']
+
+	# merge in the settings table we just built
+	global_settings = merge_dicts(cmd_global_settings, global_settings)
+
+	# un/pack settings are flat and potentially very long, so we just let
+	# the user specifify a dictionary and then interperate it literally
+	# this could maybe be more elegant...
+	# then we merge the dicts we got (if any).
+	# this just explodes in flames if the user passes malformed dicts,
+	# because this function is already a mess and I'm not writing a python
+	# parser
+	if arguments['--pack_settings='] != None:
+		cmd_pack_settings = \
+			ast.literal_eval(arguments['--pack_settings='])
+		pack_settings = merge_dicts(cmd_pack_settings,
+			pack_settings)
+	if arguments['--unpack_settings='] != None:
+		cmd_unpack_settings = \
+			ast.literal_eval(arguments['--unpack_settings='])
+		unpack_settings = merge_dicts(cmd_unpack_settings,
+			unpack_settings)
+
 	return global_settings, pack_settings, unpack_settings
 
 def main():
@@ -271,7 +361,6 @@ def main():
 	
 	new_msg = input(">")
 	push(server, room, new_msg, key, pack_settings)
-
 
 if __name__ == "__main__":
 	main()
