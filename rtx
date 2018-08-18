@@ -109,7 +109,8 @@ def decrypt(msg_list, key=None):
 	return msg_list
 
 def unpack(msg_list, unpack_settings=None):
-
+	if unpack_settings == None:
+		unpack_settings = {'':''}
 	topen = unpack_settings.get('topen', '[')
 	tclose = unpack_settings.get('tclose', ']')
 	sep = unpack_settings.get('sep', ':')
@@ -168,15 +169,20 @@ def pack(data_to_pack, pack_settings=None):
 	text_to_pack = base64.b64encode(bytes(text_to_pack,
 		encoding = 'utf-8'))
 
-	if pack_settings is not None:
+	if pack_settings != None:
 		pack_settings = base64.b64encode(
 			bytes(json.dumps(pack_settings),encoding = 'utf-8'))
 
-	packed_data = {
-		'msg': text_to_pack.decode('utf-8'),
-		'settings': pack_settings.decode('utf-8'),
-		'encrypted': data_to_pack[1]
-		}
+		packed_data = {
+			'msg': text_to_pack.decode('utf-8'),
+			'settings': pack_settings.decode('utf-8'),
+			'encrypted': data_to_pack[1]
+			}
+	else:
+		packed_data = {
+			'msg' : text_to_pack.decode('utf-8'),
+			'encrypted' : data_to_pack[1]
+			}
 
 	return packed_data
 
@@ -213,7 +219,7 @@ def config_from_file(global_settings):
 	sys.path.append(os.path.join(os.path.expanduser('~'), '.config'))
 	try:
 		from rtx import config
-	except ModuleNotFoundError:
+	except ImportError:
 		pack_settings = None
 		unpack_settings = None
 
@@ -221,18 +227,18 @@ def config_from_file(global_settings):
 	# possible exception if the user no global settings
 	try:
 		global_settings = merge_dicts(config.global_settings, global_settings)
-	except NameError:
+	except AttributeError:
 		pass
 	
 	# attempt to load un/pack settings from config
 	try:
 		pack_settings = config.pack_settings
-	except NameError:
-		pack_Settings = None;
+	except AttributeError:
+		pack_settings = None;
 	try:
 		unpack_settings = config.unpack_settings
-	except NameError:
-		unpack_Settings = None;
+	except AttributeError:
+		unpack_settings = None;
 
 	return global_settings, pack_settings, unpack_settings
 
