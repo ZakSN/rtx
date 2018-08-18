@@ -191,7 +191,6 @@ def pack(data_to_pack, pack_settings=None):
 def tx(server, room, msg):
 	requests.post(server + room + '!post', json = msg)
 
-# recieve/transmit frontends ==================================================
 def push(server, room, msg, key=None, pack_settings=None):
 	encrypted_msg = encrypt(msg, key)
 	packed_msg = pack(encrypted_msg, pack_settings)
@@ -203,6 +202,19 @@ def pull(server, room, depth, key=None, unpack_settings=None):
 	pretty_msgs = unpack(plain_msgs, unpack_settings)
 	return pretty_msgs
 
+# receive/transmit frontends ==================================================
+def transmitter(server, room, key=None, pack_settings=None):
+	while True:
+		new_msg = input(">")
+		push(server, room, new_msg, key, pack_settings)
+
+def receiver():
+	print("not implemented yet")
+
+def transceiver():
+	print("not implemented yet")
+
+# configuration ===============================================================
 def config_from_defaults():
 	# our default global settings
 	global_settings = {
@@ -255,7 +267,7 @@ def config_from_cmd(global_settings, pack_settings, unpack_settings):
 		'--pack_settings=' : None,
 		'--unpack_settings=' : None,
 		'--mode=' : None,
-		'--write_config=' : None
+		'--write_config=' : None # unimplemented
 	}
 
 	# parse fill the arguments dict
@@ -345,34 +357,48 @@ def config_from_cmd(global_settings, pack_settings, unpack_settings):
 		unpack_settings = merge_dicts(cmd_unpack_settings,
 			unpack_settings)
 
-	return global_settings, pack_settings, unpack_settings
+	if arguments['--mode='] == 'tx':
+		mode = 'tx'
+	elif arguments['--mode='] == 'rx':
+		mode = 'rx'
+	else:
+		mode = 'rtx'
+
+	return global_settings, pack_settings, unpack_settings, mode
 
 def main():
+	# get our configuration
 	global_settings = config_from_defaults()
 	
 	global_settings, pack_settings, unpack_settings = \
 		config_from_file(global_settings)
 	
-	global_settings, pack_settings, unpack_settings = \
+	global_settings, pack_settings, unpack_settings, mode = \
 		config_from_cmd(
 			global_settings,
 			pack_settings,
 			unpack_settings
 		)
 
+	# init our connection variables
 	server_name = global_settings['server']
 	room = global_settings['room']
 	depth = global_settings['depth']
-
 	server = global_settings[server_name]['url']
 	key = global_settings[server_name][room]
 
-	pretty_msgs = pull(server, room, depth, key, unpack_settings)
-	for m in pretty_msgs:
-		print(m)
-	
-	new_msg = input(">")
-	push(server, room, new_msg, key, pack_settings)
+	# start talking!
+	if mode == 'rx':
+		pretty_msgs = pull(server, room, depth, key, unpack_settings)
+		for m in pretty_msgs:
+			print(m)
+	elif mode == 'tx':
+		transmitter(server, room, key, pack_settings)
+	elif mode == 'rtx':
+		transceiver()
 
 if __name__ == "__main__":
-	main()
+	try:
+		main()
+	except KeyboardInterrupt:
+		sys.exit(0)
