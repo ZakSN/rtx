@@ -1,4 +1,16 @@
 #!/bin/python3
+'''
+Improved version of the cli-chat client for waksmemes. Original client here:
+
+https://github.com/ehrenjn/cli-chat
+
+rtx is intended to better organized from a code-base persepctive than the 
+original. Additionally it is intended to (eventually) have a better UI.
+rtx is target for unix and python3. If you want a different platform try
+the original client.
+
+(c) Zak Nafziger 2018
+'''
 
 import requests
 import json
