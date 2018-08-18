@@ -14,14 +14,15 @@ the original client.
 
 import requests
 import json
-
 import hashlib
 from Crypto import Random
 from Crypto.Cipher import AES
 import base64
-
 import datetime
 import sys
+import os
+sys.path.append(os.path.join(os.path.expanduser('~'), '.config'))
+from rtx import config
 
 # utilities ===================================================================
 class AESCipher:
@@ -181,16 +182,16 @@ def pull(server, room, depth, key=None, unpack_settings=None):
 	return pretty_msgs
 
 def main():
-	server = "http://waksmemes.x10host.com/mess/?"
-	room = "rtx_test"
-	depth = 24
-	if len(sys.argv) > 1:
-		key = sys.argv[1]
-	else:
-		key = None
+	default_server = 'waksmemes'
+	default_room = 'rtx_test'
 
-	pack_settings = {'name' : 'zak (rtx test)', 'color' : 'blue'}
-	unpack_settings = {'tfmt' : '%d-%m-%y %I:%M.%S'}
+	server = config.global_settings[default_server]['url']
+	room = default_room
+	key = config.global_settings[default_server][default_room]
+	depth = config.global_settings['depth']
+
+	pack_settings = config.pack_settings
+	unpack_settings = config.unpack_settings
 
 	new_msg = input(">")
 
