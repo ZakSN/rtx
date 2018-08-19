@@ -127,6 +127,10 @@ def unpack(msg_list, unpack_settings=None):
 	line_format = unpack_settings.get('line_format', line_format)
 	time_format = unpack_settings.get('time_format', time_format)
 
+	# get the user's format function if it exists
+	format_function = unpack_settings.get('format_function',
+		lambda a: a )
+
 	# step through the message list formmatting the messages as we go
 	arranged_msg_list = []
 	for msg in msg_list:
@@ -165,6 +169,9 @@ def unpack(msg_list, unpack_settings=None):
 			separator_color = unpack_settings.get('unencrypted_color',
 							None)
 		format_codes['%S'] = separator_color
+
+		# run the user format function
+		format_codes = format_function(format_codes)
 
 		# arrange the message according to our format string
 		arranged_msg = ""
