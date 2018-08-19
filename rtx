@@ -357,7 +357,7 @@ def nonblocking_push(server, room, key=None, pack_settings=None):
 			return
 
 def update_display(server, room, depth, key=None, pack_settings=None):
-	prompt = ">"
+	prompt = "> "
 	msg_buffer = []
 	input_buffer = ""
 
@@ -374,7 +374,9 @@ def update_display(server, room, depth, key=None, pack_settings=None):
 		# get characters from the keyboard queue
 		char = None
 		while not kq.empty():
-			char = kq.get()
+			if char == None:
+				char = ""
+			char += kq.get()
 
 		# clear the screen and print the message buffer
 		# only if we got new messages
