@@ -23,6 +23,10 @@ import sys
 import os
 import urllib
 import ast
+import threading
+import queue
+import termios
+import tty
 
 # utilities ===================================================================
 class AESCipher:
@@ -86,6 +90,16 @@ def merge_dicts(a, b):
 		elif isinstance(a[k], dict) and isinstance(b[k], dict):
 			a[k] = merge_dicts(a[k], b[k])
 	return a
+
+def write_and_flush(string):
+	sys.stdout.write(string)
+	sys.stdout.flush()
+
+def clear_and_home():
+	# clear the screen and move the cursor to 0,0
+	# relys on terminal emulating vt220 escape sequences
+	write_and_flush("\x1B[2J")
+	write_and_flush("\x1B[0;0H")
 
 # recieve chain ===============================================================
 def rx(server, room, depth, ids_after):
@@ -267,8 +281,121 @@ def receiver(server, room, depth, key=None, unpack_settings=None):
 		for msg in msg_list:
 			print(msg)
 
-def transceiver():
-	print("not implemented yet")
+# transceiver internals =======================================================
+kq = queue.Queue() # keyboard queue
+nq = queue.Queue() # network queue
+pushq = queue.Queue() # push queue
+halt = threading.Event()
+
+def transceiver(
+	server,
+	room,
+	depth,
+	key=None,
+	pack_settings=None,
+	unpack_settings=None
+	):
+	# set up the terminal for cbreak mode preserve the old terminal
+	# settings so that we can un-cbreak when we exit
+	fd = sys.stdin.fileno()
+	old = termios.tcgetattr(fd)
+	tty.setcbreak(fd)
+
+	# create our threads
+	kbd = threading.Thread(target=poll_keyboard)
+	nbpull = threading.Thread(target=nonblocking_pull, args=(server, room,
+		depth, key, unpack_settings))
+	nbpush = threading.Thread(target=nonblocking_push, args=(server, room,
+		key, pack_settings))
+
+	# start them
+	kbd.start()
+	nbpull.start()
+	nbpush.start()
+
+	try:
+		update_display(server, room, depth, key, pack_settings)
+	except KeyboardInterrupt:
+		# stop polling
+		halt.set()
+		# this is a bit of an ugly hack
+		# get blocks, so to halt we need to put something on the push
+		# queue so that nonblocking_push checks the halt condition
+		# doing it pythonically with exception and get_nowait was too
+		# slow and made pushes lag noticably...
+		pushq.put(None)
+		# undo cbreak mode
+		old[3] = old[3] | termios.ECHO
+		termios.tcsetattr(fd, termios.TCSADRAIN, old)
+		# clear the screen and rehome the cursor
+		clear_and_home()
+		raise
+
+def poll_keyboard():
+	while True:
+		char = sys.stdin.read(1)
+		kq.put(char)
+		if halt.is_set():
+			return
+
+def nonblocking_pull(server, room, depth, key=None, unpack_settings=None):
+	last_id = 0
+	while True:
+		msg_list, last_id = pull(server, room, depth, last_id, key,
+			unpack_settings)
+		for msg in msg_list:
+			nq.put(msg)
+		if halt.is_set():
+			return
+
+def nonblocking_push(server, room, key=None, pack_settings=None):
+	while True:
+		to_push = pushq.get()
+		if to_push != None:
+			push(server, room, to_push, key, pack_settings)
+		if halt.is_set():
+			return
+
+def update_display(server, room, depth, key=None, pack_settings=None):
+	prompt = ">"
+	msg_buffer = []
+	input_buffer = ""
+
+	while True:
+		# get messages from the network queue
+		new_msgs = False
+		while not nq.empty():
+			msg_buffer.append(nq.get())
+			new_msgs = True
+
+		while len(msg_buffer) > depth:
+			msg_buffer.pop(0)
+
+		# get characters from the keyboard queue
+		char = None
+		while not kq.empty():
+			char = kq.get()
+
+		# clear the screen and print the message buffer
+		# only if we got new messages
+		if new_msgs:
+			clear_and_home()
+			for msg in msg_buffer:
+				print(msg)
+			write_and_flush(prompt+input_buffer)
+
+		# print or send the message
+		if char != "\n":
+			# if we don't get a newline continue to
+			# build the message, and print it
+			if char != None:
+				input_buffer += char
+				write_and_flush(char)
+		elif char != None:
+			# send the message
+			pushq.put(input_buffer)
+			input_buffer = ""
+			write_and_flush("\n" + prompt)
 
 # configuration ===============================================================
 def config_from_defaults():
@@ -342,7 +469,7 @@ def config_from_cmd(global_settings, pack_settings, unpack_settings):
 		server = None
 
 	if arguments['--depth='] != None:
-		cmd_global_settings['depth']=arguments['--depth=']
+		cmd_global_settings['depth']=int(arguments['--depth='])
 
 	# TODO: get smarter and fix this...
 	# this builds a new global_settings from cmd args, failing over to
@@ -449,7 +576,8 @@ def main():
 	elif mode == 'tx':
 		transmitter(server, room, key, pack_settings)
 	elif mode == 'rtx':
-		transceiver()
+		transceiver(server, room, depth, key,
+			pack_settings, unpack_settings)
 
 if __name__ == "__main__":
 	try:
