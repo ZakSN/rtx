@@ -216,7 +216,8 @@ def transmitter(server, room, key=None, pack_settings=None):
 def receiver(server, room, depth, key=None, unpack_settings=None):
 	last_id = 0
 	while True:
-		msg_list, last_id = pull(server, room, depth, last_id, key, unpack_settings)
+		msg_list, last_id = pull(server, room, depth, last_id, key,
+			unpack_settings)
 		for msg in msg_list:
 			print(msg)
 
