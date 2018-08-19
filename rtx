@@ -117,7 +117,6 @@ def decrypt(msg_list, key=None):
 def unpack(msg_list, unpack_settings=None):
 	if unpack_settings == None:
 		unpack_settings = {}
-	# TODO: format function
 
 	# default line format and time format
 	line_format = '[%T] %N%S: %M'
@@ -240,9 +239,18 @@ def push(server, room, msg, key=None, pack_settings=None):
 	tx(server, room, packed_msg)
 
 def pull(server, room, depth, ids_after, key=None, unpack_settings=None):
-	encrypted_msgs, last_id = rx(server, room, depth, ids_after)
-	plain_msgs = decrypt(encrypted_msgs, key)
-	pretty_msgs = unpack(plain_msgs, unpack_settings)
+	# handle exceptions cause by being unable to query the server
+	# these are pretty infrequent and IDK how to simulate it so
+	# I'm just catching everything except ^C (not great thus: TODO)
+	try:
+		encrypted_msgs, last_id = rx(server, room, depth, ids_after)
+		plain_msgs = decrypt(encrypted_msgs, key)
+		pretty_msgs = unpack(plain_msgs, unpack_settings)
+	except KeyboardInterrupt:
+		raise
+	except Exception:
+		pretty_msgs = []
+		last_id = ids_after
 	return pretty_msgs, last_id
 
 # receive/transmit frontends ==================================================
@@ -290,17 +298,17 @@ def config_from_file(global_settings):
 	try:
 		global_settings = merge_dicts(config.global_settings, \
 			global_settings)
-	except AttributeError:
+	except (AttributeError, UnboundLocalError) as e:
 		pass
 	
 	# attempt to load un/pack settings from config
 	try:
 		pack_settings = config.pack_settings
-	except AttributeError:
+	except (AttributeError, UnboundLocalError) as e:
 		pack_settings = None;
 	try:
 		unpack_settings = config.unpack_settings
-	except AttributeError:
+	except (AttributeError, UnboundLocalError) as e:
 		unpack_settings = None;
 
 	return global_settings, pack_settings, unpack_settings
