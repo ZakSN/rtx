@@ -88,15 +88,19 @@ def merge_dicts(a, b):
 	return a
 
 # recieve chain ===============================================================
-def rx(server, room, depth):
-	ids_after = 0
+def rx(server, room, depth, ids_after):
 	query = {'MAX_MSGS': depth, 'id': {'min': ids_after + 1}}
 	reqs = requests.post(server + room, json = query)
 	raw = reqs.content.decode('utf-8')
 	msg_list = json.loads(raw)
 	msg_list.reverse()
-	
-	return msg_list
+
+	if len(msg_list) > 0:
+		last_id = msg_list[-1]['id']
+	else:
+		last_id = ids_after
+
+	return msg_list, last_id
 
 def decrypt(msg_list, key=None):
 	for msg in msg_list:
@@ -113,6 +117,7 @@ def decrypt(msg_list, key=None):
 def unpack(msg_list, unpack_settings=None):
 	if unpack_settings == None:
 		unpack_settings = {'':''}
+	# TODO: format string and format function
 	topen = unpack_settings.get('topen', '[')
 	tclose = unpack_settings.get('tclose', ']')
 	sep = unpack_settings.get('sep', ':')
@@ -196,11 +201,11 @@ def push(server, room, msg, key=None, pack_settings=None):
 	packed_msg = pack(encrypted_msg, pack_settings)
 	tx(server, room, packed_msg)
 
-def pull(server, room, depth, key=None, unpack_settings=None):
-	encrypted_msgs = rx(server, room, depth)
+def pull(server, room, depth, ids_after, key=None, unpack_settings=None):
+	encrypted_msgs, last_id = rx(server, room, depth, ids_after)
 	plain_msgs = decrypt(encrypted_msgs, key)
 	pretty_msgs = unpack(plain_msgs, unpack_settings)
-	return pretty_msgs
+	return pretty_msgs, last_id
 
 # receive/transmit frontends ==================================================
 def transmitter(server, room, key=None, pack_settings=None):
@@ -208,8 +213,12 @@ def transmitter(server, room, key=None, pack_settings=None):
 		new_msg = input(">")
 		push(server, room, new_msg, key, pack_settings)
 
-def receiver():
-	print("not implemented yet")
+def receiver(server, room, depth, key=None, unpack_settings=None):
+	last_id = 0
+	while True:
+		msg_list, last_id = pull(server, room, depth, last_id, key, unpack_settings)
+		for msg in msg_list:
+			print(msg)
 
 def transceiver():
 	print("not implemented yet")
@@ -389,9 +398,7 @@ def main():
 
 	# start talking!
 	if mode == 'rx':
-		pretty_msgs = pull(server, room, depth, key, unpack_settings)
-		for m in pretty_msgs:
-			print(m)
+		receiver(server, room, depth, key, unpack_settings)
 	elif mode == 'tx':
 		transmitter(server, room, key, pack_settings)
 	elif mode == 'rtx':
@@ -401,4 +408,5 @@ if __name__ == "__main__":
 	try:
 		main()
 	except KeyboardInterrupt:
+		print()
 		sys.exit(0)
