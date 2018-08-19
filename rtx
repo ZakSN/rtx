@@ -116,19 +116,38 @@ def decrypt(msg_list, key=None):
 
 def unpack(msg_list, unpack_settings=None):
 	if unpack_settings == None:
-		unpack_settings = {'':''}
-	# TODO: format string and format function
-	topen = unpack_settings.get('topen', '[')
-	tclose = unpack_settings.get('tclose', ']')
-	sep = unpack_settings.get('sep', ':')
-	tfmt = unpack_settings.get('tfmt', '%H:%M')
+		unpack_settings = {}
+	# TODO: format function
 
+	# default line format and time format
+	line_format = '[%T] %N%S: %M'
+	time_format = '%H:%M'
+
+	# get the line and time formats from the user's unpack_settings
+	line_format = unpack_settings.get('line_format', line_format)
+	time_format = unpack_settings.get('time_format', time_format)
+
+	# step through the message list formmatting the messages as we go
 	arranged_msg_list = []
 	for msg in msg_list:
+
+		# format codes we know about:
+		format_codes = {
+			'%T' : None, # the formatted time
+			'%N' : None, # sender's name
+			'%S' : None, # seperator
+			'%M' : None, # message
+		}
+
 		timestamp = msg['time']
-		text = msg['msg']
-		encryption_flag = msg.get('encrypted', False)
-		
+		time = datetime.datetime.fromtimestamp(
+			timestamp).strftime(time_format)
+		format_codes['%T'] = time
+
+		format_codes['%M'] = msg['msg']
+
+		pack_settings = {}
+
 		if 'settings' in msg:
 			raw_settings = base64.b64decode(
 				msg['settings']).decode('utf-8')
@@ -136,22 +155,34 @@ def unpack(msg_list, unpack_settings=None):
 
 		name = pack_settings.get('name', msg['ip'])
 		name_color = pack_settings.get('color', '')
+		format_codes['%N'] = color(name, name_color)
 
+		encryption_flag = msg.get('encrypted', False)
 		if encryption_flag == True:
-			colon_color = unpack_settings.get('encrypted_color',
+			separator_color = unpack_settings.get('encrypted_color',
 							'red')
 		else:
-			colon_color = unpack_settings.get('unencrypted_color', 
+			separator_color = unpack_settings.get('unencrypted_color',
 							None)
-		
-		arranged_msg = topen
-		arranged_msg += datetime.datetime.fromtimestamp(
-			timestamp).strftime(tfmt)
-		arranged_msg += (tclose + " ")
-		arranged_msg += color(name, name_color)
-		arranged_msg += color(sep, colon_color)
-		arranged_msg += " "
-		arranged_msg += text
+		format_codes['%S'] = separator_color
+
+		# arrange the message according to our format string
+		arranged_msg = ""
+		letters = iter(range(len(line_format)))
+		for c in letters:
+			if line_format[c] == '%':
+				next(letters)
+				fc = line_format[c] + line_format[c+1]
+				if fc == '%S':
+					# special case
+					arranged_msg += color(line_format[c+2],
+						format_codes[fc])
+					next(letters)
+				else:
+					arranged_msg += format_codes.get(fc,
+						fc)
+			else:
+				arranged_msg += line_format[c]
 
 		arranged_msg_list.append(arranged_msg)
 
