@@ -48,16 +48,20 @@ options it behaves similarly to `ui.sh` except that it does not require tmux.
 ### Config File
 The config file is a small python module that is loaded during setup. The
 following directory structure must be present for the config file to be used:
-`~/.config/rtx/`
-	`__init__.py # blank`
-	`config.py`
+```
+~/.config/rtx/
+	__init__.py # blank
+	config.py
+```
 
 ### Command Line
 The following command line options are currently supported:
-`--url=`
-`--room=`
-`--key=`
-`--depth=`
-`--pack_settings=`
-`--unpack_settings=`
-`--mode=`
+```
+--url= # the url of the server to connect to (currently only waksmemes exists)
+--room= # the room on the server to connect to
+--key= # the key AES key to use
+--depth= # the fetch depth (how many messages to display)
+--pack_settings= # a python dictionary specifying the pack settings
+--unpack_settings= # a python dictionary specifying the unpack settings
+--mode= # one of rx, tx, or rtx (defaults to rtx if no mode given)
+```
