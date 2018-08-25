@@ -101,6 +101,69 @@ def clear_and_home():
 	write_and_flush("\x1B[2J")
 	write_and_flush("\x1B[0;0H")
 
+def delete_line():
+	write_and_flush("\x1B[1M")
+
+class input_buffer:
+	control_keys = {
+		'left' : b'\x1B[D',
+		'right' : b'\x1B[C',
+		'up' : b'\x1B[A',
+		'down' : b'\x1B[B',
+		'delete' : b'\x1B[3~',
+		'backspace' : b'\x7F'
+	}
+
+	def __init__(self):
+		self.clear()
+		self.control_bytes = \
+			dict((v, k) for k, v in self.control_keys.items())
+
+	def clear(self):
+		self.buf = []
+		self.cursor_pos = 0
+
+	def line(self):
+		line = ""
+		for c in range(len(self.buf)):
+			line += self.buf[c]
+		return line
+
+	def cursor_line(self):
+		line = self.line()
+		if self.cursor_pos != len(line):
+			for c in range(len(line)):
+				line += self.control_keys['left']
+			for c in range(self.cursor_pos):
+				line += self.control_keys['right']
+		return line + " " + str(self.cursor_pos)
+
+	def append(self, to_append):
+		for c in to_append:
+			if c not in self.control_bytes:
+				start_to_cursor = self.buf[0:self.cursor_pos]
+				cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
+				start_to_cursor.append(str(c.encode('utf-8')))
+				self.buf = start_to_cursor + cursor_to_end
+				self.cursor_pos += 1
+			elif self.control_bytes[c] == 'left':
+				if self.cursor_pos > 0:
+					self.cursor_pos -= 1
+			elif self.control_bytes[c] == 'right':
+				if self.cursor_pos < len(self.buf):
+					self.cursor_pos += 1
+			elif self.control_bytes[c] == 'delete':
+				if self.cursor_pos != len(self.buf):
+					start_to_cursor = self.buf[0:self.cursor_pos]
+					cursor_to_end = self.buf[self.cursor_pos+1:len(self.buf)]
+					self.buf = start_to_cursor + cursor_to_end
+			elif self.control_bytes[c] == 'backspace':
+				if self.cursor_pos > 0:
+					start_to_cursor = self.buf[0:self.cursor_pos-1]
+					cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
+					self.buf = start_to_cursor + cursor_to_end
+					self.cursor_pos -= 1
+
 # recieve chain ===============================================================
 def rx(server, room, depth, ids_after):
 	query = {'MAX_MSGS': depth, 'id': {'min': ids_after + 1}}
@@ -359,7 +422,7 @@ def nonblocking_push(server, room, key=None, pack_settings=None):
 def update_display(server, room, depth, key=None, pack_settings=None):
 	prompt = "> "
 	msg_buffer = []
-	input_buffer = ""
+	inpbuf = input_buffer()
 
 	while True:
 		# get messages from the network queue
@@ -384,19 +447,20 @@ def update_display(server, room, depth, key=None, pack_settings=None):
 			clear_and_home()
 			for msg in msg_buffer:
 				print(msg)
-			write_and_flush(prompt+input_buffer)
+			write_and_flush(prompt+inpbuf.cursor_line())
 
 		# print or send the message
 		if char != "\n":
 			# if we don't get a newline continue to
 			# build the message, and print it
 			if char != None:
-				input_buffer += char
-				write_and_flush(char)
+				inpbuf.append(char)
+				delete_line()
+				write_and_flush(prompt+inpbuf.cursor_line())
 		elif char != None:
 			# send the message
-			pushq.put(input_buffer)
-			input_buffer = ""
+			pushq.put(inpbuf.line())
+			inpbuf.clear()
 			write_and_flush("\n" + prompt)
 
 # configuration ===============================================================
