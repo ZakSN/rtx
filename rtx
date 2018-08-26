@@ -27,6 +27,7 @@ import threading
 import queue
 import termios
 import tty
+from enum import Enum
 
 # utilities ===================================================================
 class AESCipher:
@@ -106,18 +107,16 @@ def delete_line():
 
 class input_buffer:
 	control_keys = {
-		'left' : b'\x1B[D',
-		'right' : b'\x1B[C',
-		'up' : b'\x1B[A',
-		'down' : b'\x1B[B',
-		'delete' : b'\x1B[3~',
-		'backspace' : b'\x7F'
+		'left' : '\x1B[D',
+		'right' : '\x1B[C',
+		'up' : '\x1B[A',
+		'down' : '\x1B[B',
+		'delete' : '\x1B[3~',
+		'backspace' : '\x7F'
 	}
 
 	def __init__(self):
 		self.clear()
-		self.control_bytes = \
-			dict((v, k) for k, v in self.control_keys.items())
 
 	def clear(self):
 		self.buf = []
@@ -126,43 +125,75 @@ class input_buffer:
 	def line(self):
 		line = ""
 		for c in range(len(self.buf)):
-			line += self.buf[c]
+			if c == self.cursor_pos:
+				line += "_"
+			else:
+				line += self.buf[c]
 		return line
 
 	def cursor_line(self):
+		return self.line()
+
 		line = self.line()
 		if self.cursor_pos != len(line):
 			for c in range(len(line)):
 				line += self.control_keys['left']
 			for c in range(self.cursor_pos):
 				line += self.control_keys['right']
-		return line + " " + str(self.cursor_pos)
+		return line
 
 	def append(self, to_append):
-		for c in to_append:
-			if c not in self.control_bytes:
-				start_to_cursor = self.buf[0:self.cursor_pos]
-				cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
-				start_to_cursor.append(str(c.encode('utf-8')))
-				self.buf = start_to_cursor + cursor_to_end
-				self.cursor_pos += 1
-			elif self.control_bytes[c] == 'left':
-				if self.cursor_pos > 0:
-					self.cursor_pos -= 1
-			elif self.control_bytes[c] == 'right':
-				if self.cursor_pos < len(self.buf):
-					self.cursor_pos += 1
-			elif self.control_bytes[c] == 'delete':
-				if self.cursor_pos != len(self.buf):
+		class state(Enum):
+			start = 0
+			escape = 1
+			open_bracket = 2
+			delete = 3
+
+		current_state = state.start
+		char_list_iter = iter(to_append)
+		for c in char_list_iter:
+			if current_state == state.start:
+				if c == 'backspace':
+					if self.cursor_pos > 0:
+						start_to_cursor = self.buf[0:self.cursor_pos-1]
+						cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
+						self.buf = start_to_cursor + cursor_to_end
+						self.cursor_pos -= 1
+					current_state = state.start
+				if c == '\x1b':
+					current_state = state.escape
+				else:
 					start_to_cursor = self.buf[0:self.cursor_pos]
-					cursor_to_end = self.buf[self.cursor_pos+1:len(self.buf)]
-					self.buf = start_to_cursor + cursor_to_end
-			elif self.control_bytes[c] == 'backspace':
-				if self.cursor_pos > 0:
-					start_to_cursor = self.buf[0:self.cursor_pos-1]
 					cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
+					start_to_cursor.append(c)
 					self.buf = start_to_cursor + cursor_to_end
-					self.cursor_pos -= 1
+					self.cursor_pos += 1
+					current_state = state.start
+			elif current_state == state.escape:
+				if c == '[':
+					current_state = state.open_bracket
+				else:
+					current_state = state.start
+			elif current_state == state.open_bracket:
+				if c == 'C':
+					if self.cursor_pos < len(self.buf):
+						self.cursor_pos += 1
+					current_state = state.start
+				elif c == 'D':
+					if self.cursor_pos > 0:
+						self.cursor_pos -= 1
+					current_state = state.start
+				elif c == '3':
+					current_state = state.delete
+				else:
+					current_state = state.start
+			elif current_state == state.delete:
+				if c == '~':
+					if self.cursor_pos != len(self.buf):
+						start_to_cursor = self.buf[0:self.cursor_pos]
+						cursor_to_end = self.buf[self.cursor_pos+1:len(self.buf)]
+						self.buf = start_to_cursor + cursor_to_end
+				current_state = state.start
 
 # recieve chain ===============================================================
 def rx(server, room, depth, ids_after):
