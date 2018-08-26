@@ -9,7 +9,7 @@ the terminal support vt220 escape sequences.
 the name is short for recieve/trasnmit.
 
 # Improvements and features
-- Refactored code base. The code base is slightly less of a mess. Linewraps at 80 as god inteneded.
+- Refactored code base. The code base is slightly less of a mess. Linewraps at 80 as god intended.
 - multithreaded UI. Drops the need to run two individual processes.
 - completely backwards compatible with cli-chat
 - can emulate cli-chat (to an extent)
