@@ -106,6 +106,12 @@ def delete_line():
 	write_and_flush("\x1B[1M")
 
 class input_buffer:
+	class state(Enum):
+		start = 0
+		escape = 1
+		open_bracket = 2
+		delete = 3
+
 	control_keys = {
 		'left' : '\x1B[D',
 		'right' : '\x1B[C',
@@ -119,21 +125,17 @@ class input_buffer:
 		self.clear()
 
 	def clear(self):
+		self.current_state = self.state.start
 		self.buf = []
 		self.cursor_pos = 0
 
 	def line(self):
 		line = ""
 		for c in range(len(self.buf)):
-			if c == self.cursor_pos:
-				line += "_"
-			else:
-				line += self.buf[c]
+			line += self.buf[c]
 		return line
 
 	def cursor_line(self):
-		return self.line()
-
 		line = self.line()
 		if self.cursor_pos != len(line):
 			for c in range(len(line)):
@@ -143,57 +145,49 @@ class input_buffer:
 		return line
 
 	def append(self, to_append):
-		class state(Enum):
-			start = 0
-			escape = 1
-			open_bracket = 2
-			delete = 3
-
-		current_state = state.start
-		char_list_iter = iter(to_append)
-		for c in char_list_iter:
-			if current_state == state.start:
+		for c in to_append:
+			if self.current_state == self.state.start:
 				if c == 'backspace':
 					if self.cursor_pos > 0:
 						start_to_cursor = self.buf[0:self.cursor_pos-1]
 						cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
 						self.buf = start_to_cursor + cursor_to_end
 						self.cursor_pos -= 1
-					current_state = state.start
+					self.current_state = self.state.start
 				if c == '\x1b':
-					current_state = state.escape
+					self.current_state = self.state.escape
 				else:
 					start_to_cursor = self.buf[0:self.cursor_pos]
 					cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
 					start_to_cursor.append(c)
 					self.buf = start_to_cursor + cursor_to_end
 					self.cursor_pos += 1
-					current_state = state.start
-			elif current_state == state.escape:
+					self.current_state = self.state.start
+			elif self.current_state == self.state.escape:
 				if c == '[':
-					current_state = state.open_bracket
+					self.current_state = self.state.open_bracket
 				else:
-					current_state = state.start
-			elif current_state == state.open_bracket:
+					self.current_state = self.state.start
+			elif self.current_state == self.state.open_bracket:
 				if c == 'C':
 					if self.cursor_pos < len(self.buf):
 						self.cursor_pos += 1
-					current_state = state.start
+					self.current_state = self.state.start
 				elif c == 'D':
 					if self.cursor_pos > 0:
 						self.cursor_pos -= 1
-					current_state = state.start
+					self.current_state = self.state.start
 				elif c == '3':
-					current_state = state.delete
+					self.current_state = self.state.delete
 				else:
-					current_state = state.start
-			elif current_state == state.delete:
+					self.current_state = self.state.start
+			elif self.current_state == self.state.delete:
 				if c == '~':
 					if self.cursor_pos != len(self.buf):
 						start_to_cursor = self.buf[0:self.cursor_pos]
 						cursor_to_end = self.buf[self.cursor_pos+1:len(self.buf)]
 						self.buf = start_to_cursor + cursor_to_end
-				current_state = state.start
+				self.current_state = self.state.start
 
 # recieve chain ===============================================================
 def rx(server, room, depth, ids_after):
