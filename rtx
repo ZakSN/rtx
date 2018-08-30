@@ -106,26 +106,17 @@ def delete_line():
 	write_and_flush("\x1B[1M")
 
 class input_buffer:
-	class state(Enum):
-		start = 0
-		escape = 1
-		open_bracket = 2
-		delete = 3
-
-	control_keys = {
-		'left' : '\x1B[D',
-		'right' : '\x1B[C',
-		'up' : '\x1B[A',
-		'down' : '\x1B[B',
-		'delete' : '\x1B[3~',
-		'backspace' : '\x7F'
-	}
+	class states(Enum):
+		S0 = 0
+		S1 = 1
+		S2 = 2
+		S3 = 3
 
 	def __init__(self):
 		self.clear()
 
 	def clear(self):
-		self.current_state = self.state.start
+		self.current_state = self.states.S0
 		self.buf = []
 		self.cursor_pos = 0
 
@@ -139,55 +130,78 @@ class input_buffer:
 		line = self.line()
 		if self.cursor_pos != len(line):
 			for c in range(len(line)):
-				line += self.control_keys['left']
+				line += '\x1B[D' #left
 			for c in range(self.cursor_pos):
-				line += self.control_keys['right']
+				line += '\x1B[C' #right
 		return line
 
 	def append(self, to_append):
 		for c in to_append:
-			if self.current_state == self.state.start:
-				if c == 'backspace':
-					if self.cursor_pos > 0:
-						start_to_cursor = self.buf[0:self.cursor_pos-1]
-						cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
-						self.buf = start_to_cursor + cursor_to_end
-						self.cursor_pos -= 1
-					self.current_state = self.state.start
-				if c == '\x1b':
-					self.current_state = self.state.escape
-				else:
-					start_to_cursor = self.buf[0:self.cursor_pos]
-					cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
-					start_to_cursor.append(c)
-					self.buf = start_to_cursor + cursor_to_end
-					self.cursor_pos += 1
-					self.current_state = self.state.start
-			elif self.current_state == self.state.escape:
-				if c == '[':
-					self.current_state = self.state.open_bracket
-				else:
-					self.current_state = self.state.start
-			elif self.current_state == self.state.open_bracket:
-				if c == 'C':
-					if self.cursor_pos < len(self.buf):
-						self.cursor_pos += 1
-					self.current_state = self.state.start
-				elif c == 'D':
-					if self.cursor_pos > 0:
-						self.cursor_pos -= 1
-					self.current_state = self.state.start
-				elif c == '3':
-					self.current_state = self.state.delete
-				else:
-					self.current_state = self.state.start
-			elif self.current_state == self.state.delete:
-				if c == '~':
-					if self.cursor_pos != len(self.buf):
-						start_to_cursor = self.buf[0:self.cursor_pos]
-						cursor_to_end = self.buf[self.cursor_pos+1:len(self.buf)]
-						self.buf = start_to_cursor + cursor_to_end
-				self.current_state = self.state.start
+			self.current_state = self._state_machine(
+				self.states, self.current_state, c)
+
+	def _state_machine(self, states, current_state, c):
+		next_state = None
+		if current_state == states.S0:
+			if c == '\x08':
+				self._backspace()
+				next_state = states.S0
+			elif c == '\x1B':
+				next_state = states.S1
+			else:
+				self._append_at_cursor(c)
+				next_state = states.S0
+		elif current_state == states.S1:
+			if c == '[':
+				next_state = states.S2
+			else:
+				next_state = states.S0
+		elif current_state == states.S2:
+			if c == 'C':
+				self._cursor_right()
+				next_state = states.S0
+			elif c == 'D':
+				self._cursor_left()
+				next_state = states.S0
+			elif c == '3':
+				next_state = states.S3
+			else:
+				next_state = states.S0
+		elif current_state == states.S3:
+			if c == '~':
+				self._delete()
+			next_state = states.S0
+		return next_state
+
+	def _append_at_cursor(self, c):
+		start_to_cursor = self.buf[0:self.cursor_pos]
+		cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
+		start_to_cursor.append(c)
+		self.buf = start_to_cursor + cursor_to_end
+		self.cursor_pos += 1
+
+	def _backspace(self):
+		if self.cursor_pos <= 0:
+			return
+		start_to_cursor = self.buf[0:self.cursor_pos-1]
+		cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
+		self.buf = start_to_cursor + cursor_to_end
+		self.cursor_pos -= 1
+
+	def _cursor_right(self):
+		if self.cursor_pos < len(self.buf):
+			self.cursor_pos += 1
+
+	def _cursor_left(self):
+		if self.cursor_pos > 0:
+			self.cursor_pos -= 1
+
+	def _delete(self):
+		if self.cursor_pos == len(self.buf):
+			return
+		start_to_cursor = self.buf[0:self.cursor_pos]
+		cursor_to_end = self.buf[self.cursor_pos+1:len(self.buf)]
+		self.buf = start_to_cursor + cursor_to_end
 
 # recieve chain ===============================================================
 def rx(server, room, depth, ids_after):
@@ -267,8 +281,8 @@ def unpack(msg_list, unpack_settings=None):
 			separator_color = unpack_settings.get('encrypted_color',
 							'red')
 		else:
-			separator_color = unpack_settings.get('unencrypted_color',
-							None)
+			separator_color = unpack_settings.get(
+				'unencrypted_color', None)
 		format_codes['%S'] = separator_color
 
 		# run the user format function
