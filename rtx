@@ -27,6 +27,7 @@ import threading
 import queue
 import termios
 import tty
+from enum import Enum
 
 # utilities ===================================================================
 class AESCipher:
@@ -100,6 +101,107 @@ def clear_and_home():
 	# relys on terminal emulating vt220 escape sequences
 	write_and_flush("\x1B[2J")
 	write_and_flush("\x1B[0;0H")
+
+def delete_line():
+	write_and_flush("\x1B[1M")
+
+class input_buffer:
+	class states(Enum):
+		S0 = 0
+		S1 = 1
+		S2 = 2
+		S3 = 3
+
+	def __init__(self):
+		self.clear()
+
+	def clear(self):
+		self.current_state = self.states.S0
+		self.buf = []
+		self.cursor_pos = 0
+
+	def line(self):
+		line = ""
+		for c in range(len(self.buf)):
+			line += self.buf[c]
+		return line
+
+	def cursor_line(self):
+		line = self.line()
+		if self.cursor_pos != len(line):
+			for c in range(len(line)):
+				line += '\x1B[D' #left
+			for c in range(self.cursor_pos):
+				line += '\x1B[C' #right
+		return line
+
+	def append(self, to_append):
+		for c in to_append:
+			self.current_state = self._state_machine(
+				self.states, self.current_state, c)
+
+	def _state_machine(self, states, current_state, c):
+		next_state = None
+		if current_state == states.S0:
+			if c == '\x08':
+				self._backspace()
+				next_state = states.S0
+			elif c == '\x1B':
+				next_state = states.S1
+			else:
+				self._append_at_cursor(c)
+				next_state = states.S0
+		elif current_state == states.S1:
+			if c == '[':
+				next_state = states.S2
+			else:
+				next_state = states.S0
+		elif current_state == states.S2:
+			if c == 'C':
+				self._cursor_right()
+				next_state = states.S0
+			elif c == 'D':
+				self._cursor_left()
+				next_state = states.S0
+			elif c == '3':
+				next_state = states.S3
+			else:
+				next_state = states.S0
+		elif current_state == states.S3:
+			if c == '~':
+				self._delete()
+			next_state = states.S0
+		return next_state
+
+	def _append_at_cursor(self, c):
+		start_to_cursor = self.buf[0:self.cursor_pos]
+		cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
+		start_to_cursor.append(c)
+		self.buf = start_to_cursor + cursor_to_end
+		self.cursor_pos += 1
+
+	def _backspace(self):
+		if self.cursor_pos <= 0:
+			return
+		start_to_cursor = self.buf[0:self.cursor_pos-1]
+		cursor_to_end = self.buf[self.cursor_pos:len(self.buf)]
+		self.buf = start_to_cursor + cursor_to_end
+		self.cursor_pos -= 1
+
+	def _cursor_right(self):
+		if self.cursor_pos < len(self.buf):
+			self.cursor_pos += 1
+
+	def _cursor_left(self):
+		if self.cursor_pos > 0:
+			self.cursor_pos -= 1
+
+	def _delete(self):
+		if self.cursor_pos == len(self.buf):
+			return
+		start_to_cursor = self.buf[0:self.cursor_pos]
+		cursor_to_end = self.buf[self.cursor_pos+1:len(self.buf)]
+		self.buf = start_to_cursor + cursor_to_end
 
 # recieve chain ===============================================================
 def rx(server, room, depth, ids_after):
@@ -179,8 +281,8 @@ def unpack(msg_list, unpack_settings=None):
 			separator_color = unpack_settings.get('encrypted_color',
 							'red')
 		else:
-			separator_color = unpack_settings.get('unencrypted_color',
-							None)
+			separator_color = unpack_settings.get(
+				'unencrypted_color', None)
 		format_codes['%S'] = separator_color
 
 		# run the user format function
@@ -359,7 +461,7 @@ def nonblocking_push(server, room, key=None, pack_settings=None):
 def update_display(server, room, depth, key=None, pack_settings=None):
 	prompt = "> "
 	msg_buffer = []
-	input_buffer = ""
+	inpbuf = input_buffer()
 
 	while True:
 		# get messages from the network queue
@@ -384,19 +486,20 @@ def update_display(server, room, depth, key=None, pack_settings=None):
 			clear_and_home()
 			for msg in msg_buffer:
 				print(msg)
-			write_and_flush(prompt+input_buffer)
+			write_and_flush(prompt+inpbuf.cursor_line())
 
 		# print or send the message
 		if char != "\n":
 			# if we don't get a newline continue to
 			# build the message, and print it
 			if char != None:
-				input_buffer += char
-				write_and_flush(char)
+				inpbuf.append(char)
+				delete_line()
+				write_and_flush(prompt+inpbuf.cursor_line())
 		elif char != None:
 			# send the message
-			pushq.put(input_buffer)
-			input_buffer = ""
+			pushq.put(inpbuf.line())
+			inpbuf.clear()
 			write_and_flush("\n" + prompt)
 
 # configuration ===============================================================
