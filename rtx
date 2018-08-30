@@ -28,6 +28,7 @@ import queue
 import termios
 import tty
 from enum import Enum
+import math
 
 # utilities ===================================================================
 class AESCipher:
@@ -102,8 +103,11 @@ def clear_and_home():
 	write_and_flush("\x1B[2J")
 	write_and_flush("\x1B[0;0H")
 
-def delete_line():
-	write_and_flush("\x1B[1M")
+def delete_lines(n):
+	for c in reversed(range(n)):
+		write_and_flush("\x1B[1M")
+		if c > 0:
+			write_and_flush("\x1B[A")
 
 class input_buffer:
 	class states(Enum):
@@ -127,12 +131,17 @@ class input_buffer:
 		return line
 
 	def cursor_line(self):
-		line = self.line()
-		if self.cursor_pos != len(line):
-			for c in range(len(line)):
-				line += '\x1B[D' #left
-			for c in range(self.cursor_pos):
-				line += '\x1B[C' #right
+		cursor = "_"
+		line = ""
+		cursor_flag = False
+		for c in range(len(self.buf)):
+			if c == self.cursor_pos:
+				line += cursor
+				cursor_flag = True
+			else:
+				line += self.buf[c]
+		if cursor_flag != True:
+			line += cursor
 		return line
 
 	def append(self, to_append):
@@ -403,6 +412,9 @@ def transceiver(
 	old = termios.tcgetattr(fd)
 	tty.setcbreak(fd)
 
+	# hide the cursor
+	write_and_flush("\x1B[?25l")
+
 	# create our threads
 	kbd = threading.Thread(target=poll_keyboard)
 	nbpull = threading.Thread(target=nonblocking_pull, args=(server, room,
@@ -431,6 +443,8 @@ def transceiver(
 		termios.tcsetattr(fd, termios.TCSADRAIN, old)
 		# clear the screen and rehome the cursor
 		clear_and_home()
+		# un hide the cursor
+		write_and_flush("\x1B[?25h")
 		raise
 
 def poll_keyboard():
@@ -493,8 +507,18 @@ def update_display(server, room, depth, key=None, pack_settings=None):
 			# if we don't get a newline continue to
 			# build the message, and print it
 			if char != None:
+				# append the incoming character
 				inpbuf.append(char)
-				delete_line()
+				# determine how wide the terminal is
+				rows, columns = os.popen(
+					'stty size', 'r').read().split()
+				# calculate how many lines the buffer displays
+				# as on the terminal
+				lines_to_del = math.ceil((len(inpbuf.line())
+					+ len(prompt))/int(columns))
+				# delete those lines
+				delete_lines(lines_to_del)
+				# re-draw the buffer
 				write_and_flush(prompt+inpbuf.cursor_line())
 		elif char != None:
 			# send the message
