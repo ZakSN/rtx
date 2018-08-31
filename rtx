@@ -29,6 +29,7 @@ import termios
 import tty
 from enum import Enum
 import math
+import hunspell
 
 # utilities ===================================================================
 class AESCipher:
@@ -211,6 +212,18 @@ class input_buffer:
 		start_to_cursor = self.buf[0:self.cursor_pos]
 		cursor_to_end = self.buf[self.cursor_pos+1:len(self.buf)]
 		self.buf = start_to_cursor + cursor_to_end
+
+hs_check = hunspell.HunSpell("/usr/share/hunspell/en_CA-large.dic", "/usr/share/hunspell/en_CA-large.aff")
+
+def spell_check(to_check):
+	checked = ""
+	for word in to_check.split():
+		if not hs_check.spell(word):
+			word = color(word, "red")
+		checked += word
+		checked += " "
+	checked = checked[0:len(checked) - 1]
+	return checked
 
 # recieve chain ===============================================================
 def rx(server, room, depth, ids_after):
@@ -519,7 +532,8 @@ def update_display(server, room, depth, key=None, pack_settings=None):
 				# delete those lines
 				delete_lines(lines_to_del)
 				# re-draw the buffer
-				write_and_flush(prompt+inpbuf.cursor_line())
+				spell_line = spell_check(inpbuf.cursor_line())
+				write_and_flush(prompt + spell_line)
 		elif char != None:
 			# send the message
 			pushq.put(inpbuf.line())
