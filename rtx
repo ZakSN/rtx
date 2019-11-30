@@ -15,8 +15,11 @@ the original client.
 import requests
 import json
 import hashlib
-from Crypto import Random
-from Crypto.Cipher import AES
+try:
+	from Crypto import Random
+	from Crypto.Cipher import AES
+except:
+	pass
 import base64
 import datetime
 import sys
@@ -42,7 +45,7 @@ class AESCipher:
 		self.key = hashlib.sha256(key.encode()).digest()
 
 	def encrypt(self, raw):
-		raw = self._pad(raw)
+		raw = self._pad(raw.encode('utf8'))
 		iv = Random.new().read(AES.block_size)
 		cipher = AES.new(self.key, 
 			AES.MODE_CBC, iv)
@@ -59,7 +62,7 @@ class AESCipher:
 
 	def _pad(self, s):
 		return s + (self.bs - len(s)%self.bs)*\
-			chr(self.bs - len(s)%self.bs)
+			chr(self.bs - len(s)%self.bs).encode('utf8')
 
 	@staticmethod
 	def _unpad(s):
